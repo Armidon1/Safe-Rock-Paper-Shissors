@@ -19,3 +19,7 @@ then in another terminal run bob
 python bob.py
 ```
 after that follow the instructions in the terminal
+
+## todo
+- check that alice is sending properly who she is
+- server checks that alice is okay

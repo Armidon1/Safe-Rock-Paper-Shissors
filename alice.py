@@ -5,6 +5,9 @@ import json
 import enc
 import time
 import struct
+import base64
+from enc import load_private_key
+from enc import load_public_key_from_cert
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
@@ -13,6 +16,11 @@ from tcp_json import receive_json
 from tcp_json import send_json
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
+from enc import decrypt_message
+from enc import encrypt_message
+from rps import rock_paper_shissors_secure
+from enc import send_json_encrypted
+from enc import receive_and_decrypt_json_encrypted
 
 
 HOST = '0.0.0.0'
@@ -72,26 +80,69 @@ def sendWhoIAm(socket):
     )
 
     handshake_packet = {
+        "Symm-encrypted":"n",
         "client_id": "alice",
         "type": "auth",
         "timestamp": timestamp,          
-        "encrypted_blob": encrypted_blob,
-        "signature": signature          
-    }
+        "encrypted_key": base64.b64encode(encrypted_blob).decode('utf-8'),
+        "signature": base64.b64encode(signature).decode('utf-8')       
+    }   
 
     send_json(socket, handshake_packet)
 
+#TODO
+def game_result(message, conn):
+    # placeholder: process a game result message from server
+    print(f"Game result received: {message}")
+    return True
+
+#TODO
+def game(message, conn):
+    value = rock_paper_shissors_secure()
+    message = {
+        "client_id" : "alice",
+        "type" : "game",
+        "value" : value
+    }
+    #print("i'm inside the game function!")
+    send_json_encrypted(message, conn, "alice",session_key)
+    return True
+
+def handle(message, conn):
+    msg_type = message.get("type")
+    match msg_type:
+        case "you are a liar":
+            print("damn he found me! I have to escape")
+            return False
+        case "game":
+            return game(message, conn)
+        case "game result":
+            return game_result(message, conn)
+        case "game ack":
+            print("Server acknowledged game message")
+            return True
 
 def main():
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.connect((HOST, PORT))
-        #s.sendall(b'Hello, World!') # Note the b'' for bytes
-        sendWhoIAm(s)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as conn:
+        conn.connect((HOST, PORT))
+        print("Connected to the server")
+        
+        sendWhoIAm(conn)
+        print("sent who i am")
 
-        data = s.recv(1024)
+        # receive initial message and then keep receiving inside the loop
+        while True:
+            # Do not pass 0 here; pass no message (or None) so the function reads from socket
+            message = receive_and_decrypt_json_encrypted(conn, session_key)
+            if not message:
+                print("No message received, closing connection")
+                break
+            print(f"message received : {message}")
+            if handle(message, conn) == False:
+                break
 
-    print(f"Received: {data.decode('utf-8')}")
+    
 
 if __name__ == "__main__":
     main()

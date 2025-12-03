@@ -1,56 +1,178 @@
 import socket
 import threading
+import secrets
+import base64
 import json
+from enc import load_private_key
+from enc import load_public_key_from_cert
+from enc import is_timestamp_valid
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
+from tcp_json import receive_json
+from tcp_json import send_json
+import struct
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes
+from enc import encrypt_message
+from enc import decrypt_message
+from enc import send_json_encrypted
+from enc import receive_and_decrypt_json_encrypted
 
 HOST = "0.0.0.0"
 PORT = 8080
 
-
-def load_public_key_from_cert(filename):
-    # 1. read bytes from file.pem
-    with open(filename, "rb") as cert_file:
-        cert_data = cert_file.read()
-        
-    # 2. laod the certificate as X.509
-    cert = x509.load_pem_x509_certificate(cert_data, default_backend())
-    
-    # 3. extract the public key from the certificate
-    public_key = cert.public_key()
-    print(f"LOADED PUBLIC KEY {public_key} of FILENAME {filename}") #Debug
-    
-    return public_key
-
+alice_session_key = 0
+bob_session_key = 0
 
 keys_db = {
-    "ALICE": load_public_key_from_cert("alice_cert.pem"),
-    "BOB": load_public_key_from_cert("bob_cert.pem")
+    "alice": load_public_key_from_cert("alice_cert.pem"),
+    "bob": load_public_key_from_cert("bob_cert.pem")
 }
 
+def handle_auth(msg, conn, addr):
+    global alice_session_key, bob_session_key
+    timestamp = msg["timestamp"]
+    if (is_timestamp_valid(timestamp) == False):
+        print("WARNING! timestamp not valid. possible replay attack")
+        return False
+
+    encrypted_blob = base64.b64decode(msg["encrypted_key"])
+    signature_bytes = base64.b64decode(msg["signature"])
+    
+    server_private_key = load_private_key("server_key.pem")
+    decrypted_session_key = server_private_key.decrypt(
+        encrypted_blob,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    #print(f"decrypted session key {decrypted_session_key}")
+
+    try:
+        # Ricostruisce i dati originali (Key decifrata + Timestamp ricevuto)
+        data_to_verify = decrypted_session_key + struct.pack('>d', timestamp)
+
+        if (msg["client_id"] == "alice"):
+            keys_db["alice"].verify(
+                signature_bytes,
+                data_to_verify,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+            print("Valid Signature: Is Alice!")
+            alice_session_key=decrypted_session_key
+
+        elif (msg["client_id"] == "bob"):
+            keys_db["bob"].verify(
+                signature_bytes,
+                data_to_verify,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+            print("Valid Signature: is Bob!")
+            bob_session_key=decrypted_session_key
+        
+        # Usa la session key per comunicare con alice/bob
+        message = {
+            "type" : "game"
+        }
+        send_json_encrypted(message, conn, "server", decrypted_session_key)
+        return decrypted_session_key
+
+    except Exception:
+        print("Invalid Signature: Someone is liying!")
+        message = {
+            "type" : "you're a liar!"
+        }
+        send_json_encrypted(message, conn, "server",decrypted_session_key)
+        return None
+
+def handle_game(msg, conn, addr, session_key):
+    # Use the session_key provided for THIS connection instead of global variables
+    if session_key is None:
+        print(f"[{addr}] No session key available for game message from {msg.get('client_id')}")
+        return
+
+    print(f"[{addr}] Game message received with value: {msg.get('value')}")
+    # Here you can implement the game logic
+    # For now, just acknowledge receipt
+    response = {
+        "type": "game ack",
+        "value": msg.get("value")
+    }
+    send_json_encrypted(response, conn, "server", session_key)
+
 def handle(conn, addr):
-    """
-    This function runs inside a separate thread.
-    It handles the conversation for a SINGLE client.
-    """
     print(f"[NEW CONNECTION] {addr} connected.")
     
+    # Variabile per memorizzare la chiave AES di QUESTA specifica connessione
+    current_session_key = None 
+
     while True:
         try:
-            # This is a BLOCKING call, but it only blocks THIS thread.
-            # The main server loop is free to accept other people.
-            msg = conn.recv(1024)
+            # 1. Ricevi il "bussolotto" (Wrapper JSON)
+            wrapper_msg = receive_json(conn)
             
-            if not msg:
-                # Empty bytes means the client disconnected
+            if not wrapper_msg:
+                # Client disconnesso
                 break
             
-            print(f"[{addr}] {msg.decode('utf-8')}")
-            conn.sendall(b"Message received")
-            
+            # --- RAMO 1: MESSAGGI IN CHIARO (Auth) ---
+            # Usa .get() per evitare crash se la chiave non esiste
+            if wrapper_msg.get('Symm-encrypted') == "n":
+                
+                print(f"[{addr}] Messaggio in chiaro ricevuto: {wrapper_msg.get('type')}")
+                
+                if wrapper_msg.get("type") == "auth":
+                     # IMPORTANTE: handle_auth deve restituire la chiave AES se va tutto bene!
+                     # Se fallisce, restituisce None
+                     current_session_key = handle_auth(wrapper_msg, conn, addr)
+                     
+                     if current_session_key is None:
+                        print(f"[{addr}] Autenticazione fallita.")
+                        break
+                     else:
+                        print(f"[{addr}] Autenticato! Session Key memorizzata.")
+
+            # --- RAMO 2: MESSAGGI CIFRATI (Game) ---
+            else:
+                if current_session_key is None:
+                    print(f"[{addr}] ERRORE: Tentativo di invio cifrato senza auth.")
+                    break
+
+                # Usiamo la chiave di sessione salvata prima, passando il wrapper_msg come terzo argomento
+                decrypted_msg = receive_and_decrypt_json_encrypted(conn, current_session_key, wrapper_msg)
+
+                # Controllo CRITICO: La decifratura è andata a buon fine?
+                if decrypted_msg is None:
+                    print(f"[{addr}] Errore decifratura o disconnessione.")
+                    break
+
+                # Ora lavoriamo sul messaggio decifrato
+                match decrypted_msg.get('type'):
+                    case "game":
+                            handle_game(decrypted_msg, conn, addr, current_session_key)
+                    case "disconnect":
+                        print(f"[{addr}] Richiesta disconnessione.")
+                        break
+                    case _:
+                        print(f"[{addr}] Tipo messaggio sconosciuto: {decrypted_msg.get('type')}")
+                
         except ConnectionResetError:
+            print(f"[{addr}] Connection Reset.")
             break
-            
+        except Exception as e:
+            print(f"[{addr}] Errore generico nel loop: {e}")
+            break
+
     conn.close()
     print(f"[DISCONNECT] {addr} disconnected.")
 
