@@ -1,6 +1,6 @@
 import secrets
 
-rps = {0:"Shissors", 1:"Rock", 2:"Paper"}
+rps = {0:"Scissors", 1:"Rock", 2:"Paper"}
 
 def rock_paper_shissors_secure():
     return rps[secrets.randbelow(3)]

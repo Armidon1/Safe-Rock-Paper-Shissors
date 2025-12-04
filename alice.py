@@ -6,6 +6,7 @@ import enc
 import time
 import struct
 import base64
+from time import sleep
 from enc import load_private_key
 from enc import load_public_key_from_cert
 from cryptography.hazmat.primitives import serialization
@@ -94,6 +95,17 @@ def sendWhoIAm(socket):
 def game_result(message, conn):
     # placeholder: process a game result message from server
     print(f"Game result received: {message}")
+    my_value = message.get("alice_value")
+    bob_value = message.get("bob_value")
+    winner = message.get("winner")
+    print(f"I played: {my_value}, Bob played: {bob_value}. Winner: {winner}")
+    sleep(1)
+    print("Do you want to play again? (yes/no)")
+    answer = input().strip().lower()
+    if answer != "yes":
+        print("Exiting the game.")
+        return False
+    else:game(message, conn)
     return True
 
 #TODO
@@ -133,6 +145,7 @@ def main():
 
         # receive initial message and then keep receiving inside the loop
         while True:
+            print("Waiting for message...")
             # Do not pass 0 here; pass no message (or None) so the function reads from socket
             message = receive_and_decrypt_json_encrypted(conn, session_key)
             if not message:

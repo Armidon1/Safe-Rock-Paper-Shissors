@@ -3,6 +3,7 @@ import threading
 import secrets
 import base64
 import json
+from time import sleep
 from enc import load_private_key
 from enc import load_public_key_from_cert
 from enc import is_timestamp_valid
@@ -24,10 +25,33 @@ PORT = 8080
 alice_session_key = 0
 bob_session_key = 0
 
+alice_value = {"value": "", "count": 0}
+bob_value = {"value": "", "count": 0}
+
 keys_db = {
     "alice": load_public_key_from_cert("alice_cert.pem"),
     "bob": load_public_key_from_cert("bob_cert.pem")
 }
+
+def determine_winner(alice_move, bob_move):
+    a = alice_move.lower()
+    b = bob_move.lower()
+    print(f"Determining winner: Alice({a}) vs Bob({b})")  # Debug
+    
+    valid_moves = ["rock", "paper", "scissors"]
+    
+    if a not in valid_moves or b not in valid_moves:
+        return "Error: Invalid Move"
+
+    if a == b:
+        return "Draw"
+
+    if (a == "rock" and b == "scissors") or \
+       (a == "scissors" and b == "paper") or \
+       (a == "paper" and b == "rock"):
+        return "Alice"
+    
+    return "Bob"
 
 def handle_auth(msg, conn, addr):
     global alice_session_key, bob_session_key
@@ -102,6 +126,16 @@ def handle_game(msg, conn, addr, session_key):
         return
 
     print(f"[{addr}] Game message received with value: {msg.get('value')}")
+    global alice_value, bob_value
+    if msg.get("client_id") == "alice":
+        alice_value["value"] = msg.get("value")
+        alice_value["count"] += 1
+    elif msg.get("client_id") == "bob":
+        bob_value["value"] = msg.get("value")
+        bob_value["count"] += 1 
+    else:
+        print(f"[{addr}] Unknown client_id: {msg.get('client_id')}")
+        return
     # Here you can implement the game logic
     # For now, just acknowledge receipt
     response = {
@@ -109,16 +143,38 @@ def handle_game(msg, conn, addr, session_key):
         "value": msg.get("value")
     }
     send_json_encrypted(response, conn, "server", session_key)
+    while True:
+        if (alice_value["count"]==bob_value["count"]):
+            print(f"Both players have made their moves: Alice({alice_value['value']}) vs Bob({bob_value['value']})")
+            winner = determine_winner(alice_value["value"], bob_value["value"])
+            print(f"Game result determined: {winner}")
+            result_message = {
+                "type": "game result",
+                "winner": winner,
+                "alice_value": alice_value,
+                "bob_value": bob_value
+            }
+            # Send result to both players
+            if (msg.get("client_id") == "alice"):
+                print(f"Sending game result to Alice...")
+            elif (msg.get("client_id") == "bob"):
+                print(f"Sending game result to Bob...")
+            send_json_encrypted(result_message, conn, "server", session_key)
+            
+            break
+        print("Waiting for the other player to make a move...")
+        sleep(1)  # Wait a bit before checking again
+        
 
 def handle(conn, addr):
     print(f"[NEW CONNECTION] {addr} connected.")
     
-    # Variabile per memorizzare la chiave AES di QUESTA specifica connessione
     current_session_key = None 
 
     while True:
         try:
             # 1. Ricevi il "bussolotto" (Wrapper JSON)
+            print(f"[{addr}] Waiting for message...")
             wrapper_msg = receive_json(conn)
             
             if not wrapper_msg:
@@ -130,17 +186,17 @@ def handle(conn, addr):
             if wrapper_msg.get('Symm-encrypted') == "n":
                 
                 print(f"[{addr}] Messaggio in chiaro ricevuto: {wrapper_msg.get('type')}")
-                
-                if wrapper_msg.get("type") == "auth":
-                     # IMPORTANTE: handle_auth deve restituire la chiave AES se va tutto bene!
-                     # Se fallisce, restituisce None
-                     current_session_key = handle_auth(wrapper_msg, conn, addr)
-                     
-                     if current_session_key is None:
-                        print(f"[{addr}] Autenticazione fallita.")
-                        break
-                     else:
-                        print(f"[{addr}] Autenticato! Session Key memorizzata.")
+            
+            if wrapper_msg.get("type") == "auth":
+                # IMPORTANTE: handle_auth deve restituire la chiave AES se va tutto bene!
+                # Se fallisce, restituisce None
+                current_session_key = handle_auth(wrapper_msg, conn, addr)
+                    
+                if current_session_key is None:
+                    print(f"[{addr}] Autenticazione fallita.")
+                    break
+                else:
+                    print(f"[{addr}] Autenticato! Session Key memorizzata.")
 
             # --- RAMO 2: MESSAGGI CIFRATI (Game) ---
             else:
@@ -159,7 +215,7 @@ def handle(conn, addr):
                 # Ora lavoriamo sul messaggio decifrato
                 match decrypted_msg.get('type'):
                     case "game":
-                            handle_game(decrypted_msg, conn, addr, current_session_key)
+                        handle_game(decrypted_msg, conn, addr, current_session_key)
                     case "disconnect":
                         print(f"[{addr}] Richiesta disconnessione.")
                         break
