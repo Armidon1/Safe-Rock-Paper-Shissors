@@ -1,21 +1,14 @@
 import socket
 import threading
-import secrets
 import base64
-import json
 from time import sleep
 from enc import load_private_key
 from enc import load_public_key_from_cert
 from enc import is_timestamp_valid
-from cryptography import x509
-from cryptography.hazmat.backends import default_backend
 from tcp_json import receive_json
-from tcp_json import send_json
 import struct
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives import hashes
-from enc import encrypt_message
-from enc import decrypt_message
 from enc import send_json_encrypted
 from enc import receive_and_decrypt_json_encrypted
 

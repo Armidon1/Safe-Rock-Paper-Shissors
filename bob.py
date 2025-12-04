@@ -1,8 +1,5 @@
-import rps
 import secrets
 import socket
-import json
-import enc
 import time
 import struct
 import base64
@@ -13,12 +10,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
-from tcp_json import receive_json
 from tcp_json import send_json
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
-from enc import decrypt_message
-from enc import encrypt_message
 from rps import rock_paper_shissors_secure
 from enc import send_json_encrypted
 from enc import receive_and_decrypt_json_encrypted
@@ -95,11 +89,11 @@ def sendWhoIAm(socket):
 #TODO
 def game_result(message, conn):
     # placeholder: process a game result message from server
-    print(f"Game result received: {message}")
+    # print(f"Game result received: {message}")
     my_value = message.get("bob_value")
     alice_value = message.get("alice_value")
     winner = message.get("winner")
-    print(f"I played: {my_value}, Alice played: {alice_value}. Winner: {winner}")
+    print(f"I played: {my_value['value']}, Alice played: {alice_value['value']}. Winner: {winner}")
     sleep(1)
     print("Do you want to play again? (yes/no)")
     answer = input().strip().lower()
@@ -152,7 +146,7 @@ def main():
             if not message:
                 print("No message received, closing connection")
                 break
-            print(f"message received : {message}")
+            #print(f"message received : {message}")
             if handle(message, conn) == False:
                 break
 
