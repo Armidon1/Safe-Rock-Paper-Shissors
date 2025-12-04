@@ -16,6 +16,6 @@ if __name__ == "__main__":
                 count_rps["Rock"] +=1
             case "Paper":
                 count_rps["Paper"] +=1
-    print(f"Shissors = {count_rps["Shissors"]}, Rock = {count_rps["Rock"]}, Paper = {count_rps["Paper"]}")
+    print(f"Shissors = {count_rps['Shissors']}, Rock = {count_rps['Rock']}, Paper = {count_rps['Paper']}")
     print(("-"*10)+"Finish"+("-"*10))
     

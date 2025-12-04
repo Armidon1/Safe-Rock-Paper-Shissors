@@ -1,0 +1,28 @@
+services:
+  # 1. SERVIZIO SERVER
+  boss:
+    build: . # Userà il Dockerfile che ora contiene tutti i tuoi file .py
+    command: python boss.py
+    ports:
+      - "8080:8080"
+    hostname: boss
+    restart: always
+
+  # 2. SERVIZIO ALICE
+  alice:
+    build: . # Userà lo stesso Dockerfile
+    command: python alice.py
+    depends_on:
+      - boss
+    stdin_open: true
+    tty: true
+
+  # 3. SERVIZIO BOB
+  bob:
+    build: . # Userà lo stesso Dockerfile
+    command: python bob.py
+    depends_on:
+      - boss
+    stdin_open: true
+    tty: true
+

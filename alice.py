@@ -18,7 +18,7 @@ from enc import send_json_encrypted
 from enc import receive_and_decrypt_json_encrypted
 
 
-HOST = '0.0.0.0'
+HOST = 'boss'
 PORT = 8080
 session_key = secrets.token_bytes(32)
 
