@@ -113,7 +113,7 @@ def handle_auth(msg, conn, addr):
         return None
 
 def handle_game(msg, conn, addr, session_key):
-    # Use the session_key provided for THIS connection instead of global variables
+    
     if session_key is None:
         print(f"[{addr}] No session key available for game message from {msg.get('client_id')}")
         return
@@ -129,8 +129,7 @@ def handle_game(msg, conn, addr, session_key):
     else:
         print(f"[{addr}] Unknown client_id: {msg.get('client_id')}")
         return
-    # Here you can implement the game logic
-    # For now, just acknowledge receipt
+    
     response = {
         "type": "game ack",
         "value": msg.get("value")
@@ -147,7 +146,7 @@ def handle_game(msg, conn, addr, session_key):
                 "alice_value": alice_value,
                 "bob_value": bob_value
             }
-            # Send result to both players
+            
             if (msg.get("client_id") == "alice"):
                 print(f"Sending game result to Alice...")
             elif (msg.get("client_id") == "bob"):
@@ -156,7 +155,7 @@ def handle_game(msg, conn, addr, session_key):
             
             break
         print("Waiting for the other player to make a move...")
-        sleep(1)  # Wait a bit before checking again
+        sleep(1)  
         
 
 def handle(conn, addr):
@@ -166,60 +165,55 @@ def handle(conn, addr):
 
     while True:
         try:
-            # 1. Ricevi il "bussolotto" (Wrapper JSON)
+            
             print(f"[{addr}] Waiting for message...")
             wrapper_msg = receive_json(conn)
             
             if not wrapper_msg:
-                # Client disconnesso
+                # Client disconnected
                 break
             
-            # --- RAMO 1: MESSAGGI IN CHIARO (Auth) ---
-            # Usa .get() per evitare crash se la chiave non esiste
+            # --- first branch (Auth) ---
             if wrapper_msg.get('Symm-encrypted') == "n":
                 
-                print(f"[{addr}] Messaggio in chiaro ricevuto: {wrapper_msg.get('type')}")
+                print(f"[{addr}] Cleartext message received: {wrapper_msg.get('type')}")
             
             if wrapper_msg.get("type") == "auth":
-                # IMPORTANTE: handle_auth deve restituire la chiave AES se va tutto bene!
-                # Se fallisce, restituisce None
+        
                 current_session_key = handle_auth(wrapper_msg, conn, addr)
                     
                 if current_session_key is None:
-                    print(f"[{addr}] Autenticazione fallita.")
+                    print(f"[{addr}] Authentication failed.")
                     break
                 else:
-                    print(f"[{addr}] Autenticato! Session Key memorizzata.")
+                    print(f"[{addr}] Authenticated! Session Key stored.")
 
-            # --- RAMO 2: MESSAGGI CIFRATI (Game) ---
+            # --- second branch: Encrypted messages (Game) ---
             else:
                 if current_session_key is None:
-                    print(f"[{addr}] ERRORE: Tentativo di invio cifrato senza auth.")
+                    print(f"[{addr}] ERROR: Attempt to send encrypted message without auth.")
                     break
 
-                # Usiamo la chiave di sessione salvata prima, passando il wrapper_msg come terzo argomento
                 decrypted_msg = receive_and_decrypt_json_encrypted(conn, current_session_key, wrapper_msg)
 
-                # Controllo CRITICO: La decifratura è andata a buon fine?
                 if decrypted_msg is None:
-                    print(f"[{addr}] Errore decifratura o disconnessione.")
+                    print(f"[{addr}] Error decrypting or disconnected.")
                     break
 
-                # Ora lavoriamo sul messaggio decifrato
                 match decrypted_msg.get('type'):
                     case "game":
                         handle_game(decrypted_msg, conn, addr, current_session_key)
                     case "disconnect":
-                        print(f"[{addr}] Richiesta disconnessione.")
+                        print(f"[{addr}] Disconnect request.")
                         break
                     case _:
-                        print(f"[{addr}] Tipo messaggio sconosciuto: {decrypted_msg.get('type')}")
+                        print(f"[{addr}] Unknown message type: {decrypted_msg.get('type')}")
                 
         except ConnectionResetError:
             print(f"[{addr}] Connection Reset.")
             break
         except Exception as e:
-            print(f"[{addr}] Errore generico nel loop: {e}")
+            print(f"[{addr}] Generic error in loop: {e}")
             break
 
     conn.close()

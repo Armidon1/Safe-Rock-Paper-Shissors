@@ -2,7 +2,7 @@
 ## Introduction
 This project implements a secure version of the classic Rock-Paper-Scissors game using Python and Docker. The game is played between two players, Alice and Bob, with a server facilitating the communication. The communication between the players and the server is secured using encryption techniques.
 
-This project is part of the homework for the Cybersecurity course at the University of La Sapienza.
+This project is part of the homework for the Cybersecurity course at the University of La Sapienza. See the Final Report for more details about the implementation and the security measures taken.
 
 ## Instructions to run the project
 First of all it is required to have Docker and Docker Compose installed on your machine.
